@@ -9,12 +9,13 @@ pub fn build(b: *Builder) !void {
         .abi = .none,
     };
 
-    const exe = b.addExecutable("avr-arduino-zig", "src/start.zig");
-    exe.setTarget(uno);
-    exe.setBuildMode(.ReleaseSafe);
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
+    const exe = b.addExecutable(.{ .name = "avr-arduino-zig", .root_source_file = .{ .path = "src/start.zig" }, .optimize = optimize });
+    exe.target = uno;
     exe.bundle_compiler_rt = false;
     exe.setLinkerScriptPath(std.build.FileSource{ .path = "src/linker.ld" });
-    exe.install();
+    exe.emit_asm = .emit;
+    b.installArtifact(exe);
 
     const tty = b.option(
         []const u8,
@@ -22,7 +23,7 @@ pub fn build(b: *Builder) !void {
         "Specify the port to which the Arduino is connected (defaults to /dev/ttyACM0)",
     ) orelse "/dev/ttyACM0";
 
-    const bin_path = b.getInstallPath(exe.install_step.?.dest_dir, exe.out_filename);
+    const bin_path = b.getInstallPath(.prefix, exe.out_filename);
 
     const flash_command = blk: {
         var tmp = std.ArrayList(u8).init(b.allocator);
@@ -40,10 +41,10 @@ pub fn build(b: *Builder) !void {
         "-D",
         "-P",
         tty,
-        flash_command,
+        try flash_command,
     });
     upload.dependOn(&avrdude.step);
-    avrdude.step.dependOn(&exe.install_step.?.step);
+    avrdude.step.dependOn(b.getInstallStep());
 
     const objdump = b.step("objdump", "Show dissassembly of the code using avr-objdump");
     const avr_objdump = b.addSystemCommand(&.{
@@ -52,7 +53,7 @@ pub fn build(b: *Builder) !void {
         bin_path,
     });
     objdump.dependOn(&avr_objdump.step);
-    avr_objdump.step.dependOn(&exe.install_step.?.step);
+    avr_objdump.step.dependOn(b.getInstallStep());
 
     const monitor = b.step("monitor", "Opens a monitor to the serial output");
     const screen = b.addSystemCommand(&.{
