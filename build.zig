@@ -15,6 +15,8 @@ pub fn build(b: *Builder) !void {
     exe.bundle_compiler_rt = false;
     exe.setLinkerScriptPath(std.build.FileSource{ .path = "src/linker.ld" });
     exe.emit_asm = .emit;
+    exe.emit_llvm_bc = .emit;
+    exe.emit_llvm_ir = .emit;
     b.installArtifact(exe);
 
     const tty = b.option(

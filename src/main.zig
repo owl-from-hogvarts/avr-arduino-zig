@@ -1,5 +1,6 @@
 const uart = @import("uart.zig");
 const gpio = @import("gpio.zig");
+const memcpy = @import("start.zig").memcpy;
 
 // This is put in the data section
 var ch: u8 = '!';
@@ -21,6 +22,10 @@ pub fn main() void {
 
     if (bss_stuff[0] == 0)
         uart.write("Ahh its actually zero!\r\n");
+
+    // const hello = "\r\nhello\r\n";
+    // memcpy(u8, &bss_stuff, hello);
+    // for (bss_stuff[0..hello.len], hello) |*d, s| d.* = s;
 
     bss_stuff = "\r\nhello\r\n".*;
     uart.write(&bss_stuff);

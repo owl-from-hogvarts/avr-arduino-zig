@@ -4,61 +4,63 @@ const uart = @import("uart.zig");
 const std = @import("std");
 const builtin = std.builtin;
 
-export const vector_table linksection(".vectors") = asm (blk: {
-        std.debug.assert(std.mem.eql(u8, "RESET", std.meta.fields(atmega328p.VectorTable)[0].name));
-        var asm_str: []const u8 = "jmp _start\n";
+comptime {
+    asm (blk: {
+            std.debug.assert(std.mem.eql(u8, "RESET", std.meta.fields(atmega328p.VectorTable)[0].name));
+            var asm_str: []const u8 = ".vectors:\njmp _start\n";
 
-        const has_interrupts = @hasDecl(main, "interrupts");
-        if (has_interrupts) {
-            if (@hasDecl(main.interrupts, "RESET"))
-                @compileError("Not allowed to overload the reset vector");
+            const has_interrupts = @hasDecl(main, "interrupts");
+            if (has_interrupts) {
+                if (@hasDecl(main.interrupts, "RESET"))
+                    @compileError("Not allowed to overload the reset vector");
 
-            inline for (std.meta.declarations(main.interrupts)) |decl| {
-                if (!@hasField(atmega328p.VectorTable, decl.name)) {
-                    var msg: []const u8 = "There is no such interrupt as '" ++ decl.name ++ "'. ISRs the 'interrupts' namespace must be one of:\n";
-                    inline for (std.meta.fields(atmega328p.VectorTable)) |field| {
-                        if (!std.mem.eql(u8, "RESET", field.name)) {
-                            msg = msg ++ "    " ++ field.name ++ "\n";
+                inline for (std.meta.declarations(main.interrupts)) |decl| {
+                    if (!@hasField(atmega328p.VectorTable, decl.name)) {
+                        var msg: []const u8 = "There is no such interrupt as '" ++ decl.name ++ "'. ISRs the 'interrupts' namespace must be one of:\n";
+                        inline for (std.meta.fields(atmega328p.VectorTable)) |field| {
+                            if (!std.mem.eql(u8, "RESET", field.name)) {
+                                msg = msg ++ "    " ++ field.name ++ "\n";
+                            }
                         }
-                    }
 
-                    @compileError(msg);
+                        @compileError(msg);
+                    }
                 }
             }
-        }
 
-        inline for (std.meta.fields(atmega328p.VectorTable)[1..]) |field| {
-            const new_insn = if (has_interrupts) overload: {
-                if (@hasDecl(main.interrupts, field.name)) {
-                    const handler = @field(main.interrupts, field.name);
-                    const calling_convention = switch (@typeInfo(@TypeOf(@field(main.interrupts, field.name)))) {
-                        .Fn => |info| info.calling_convention,
-                        else => @compileError("Declarations in 'interrupts' namespace must all be functions. '" ++ field.name ++ "' is not a function"),
-                    };
+            inline for (std.meta.fields(atmega328p.VectorTable)[1..]) |field| {
+                const new_insn = if (has_interrupts) overload: {
+                    if (@hasDecl(main.interrupts, field.name)) {
+                        const handler = @field(main.interrupts, field.name);
+                        const calling_convention = switch (@typeInfo(@TypeOf(@field(main.interrupts, field.name)))) {
+                            .Fn => |info| info.calling_convention,
+                            else => @compileError("Declarations in 'interrupts' namespace must all be functions. '" ++ field.name ++ "' is not a function"),
+                        };
 
-                    const exported_fn = switch (calling_convention) {
-                        .Unspecified => struct {
-                            fn wrapper() callconv(.C) void {
-                                //if (calling_convention == .Unspecified) // TODO: workaround for some weird stage1 bug
-                                @call(.{ .modifier = .always_inline }, handler, .{});
-                            }
-                        }.wrapper,
-                        else => @compileError("Just leave interrupt handlers with an unspecified calling convention"),
-                    };
+                        const exported_fn = switch (calling_convention) {
+                            .Unspecified => struct {
+                                fn wrapper() callconv(.C) void {
+                                    //if (calling_convention == .Unspecified) // TODO: workaround for some weird stage1 bug
+                                    @call(.{ .modifier = .always_inline }, handler, .{});
+                                }
+                            }.wrapper,
+                            else => @compileError("Just leave interrupt handlers with an unspecified calling convention"),
+                        };
 
-                    const options = .{ .name = field.name, .linkage = .Strong };
-                    @export(exported_fn, options);
-                    break :overload "jmp " ++ field.name;
-                } else {
-                    break :overload "jmp _unhandled_vector";
-                }
-            } else "jmp _unhandled_vector";
+                        const options = .{ .name = field.name, .linkage = .Strong };
+                        @export(exported_fn, options);
+                        break :overload "jmp " ++ field.name;
+                    } else {
+                        break :overload "jmp _unhandled_vector";
+                    }
+                } else "jmp _unhandled_vector";
 
-            asm_str = asm_str ++ new_insn ++ "\n";
-        }
+                asm_str = asm_str ++ new_insn ++ "\n";
+            }
 
-        break :blk asm_str;
-    });
+            break :blk asm_str;
+        });
+}
 
 export fn _unhandled_vector() void {
     while (true) {}
@@ -73,6 +75,10 @@ pub export fn _start() callconv(.Naked) noreturn {
 
     main.main();
     while (true) {}
+}
+
+pub fn memcpy(comptime T: type, dest: []T, source: []const T) void {
+    for (dest[0..source.len], source) |*d, s| d.* = s;
 }
 
 fn copy_data_to_ram() void {
